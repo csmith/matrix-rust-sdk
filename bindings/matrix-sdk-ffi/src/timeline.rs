@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::collections::BTreeSet;
 
 use anyhow::bail;
 use extension_trait::extension_trait;
@@ -7,6 +8,10 @@ use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
     ruma::events::{
         location::AssetType as RumaAssetType,
+        poll::{
+            start::PollKind as RumaPollKind,
+            unstable_start::UnstablePollAnswer as RumaUnstablePollAnswer,
+        },
         room::{
             message::{
                 AudioInfo as RumaAudioInfo,
@@ -27,8 +32,8 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
-use ruma::{assign, UInt};
-use tracing::warn;
+use ruma::{assign, UInt, UserId};
+use tracing::{debug, warn};
 
 use crate::{
     error::{ClientError, TimelineError},
@@ -400,6 +405,8 @@ impl TimelineItemContent {
     pub fn kind(&self) -> TimelineItemContentKind {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
+        debug!("TimelineItemContent::kind: {:?}", self.0);
+
         match &self.0 {
             Content::Message(_) => TimelineItemContentKind::Message,
             Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,
@@ -411,6 +418,14 @@ impl TimelineItemContent {
                     url: content.url.to_string(),
                 }
             }
+            Content::Poll(poll) => TimelineItemContentKind::Poll {
+                question: poll.content().poll_start.question.text.to_string(),
+                kind: poll.content().poll_start.kind.clone().into(),
+                max_selections: poll.content().poll_start.max_selections.into(),
+                answers: (*poll.content().poll_start.answers).iter().map(Into::into).collect(),
+                end_time: None,
+                testing_only_votes: poll.votes() as u64,
+            },
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -473,6 +488,18 @@ pub enum TimelineItemContentKind {
         body: String,
         info: ImageInfo,
         url: String,
+    },
+    Poll {
+        // TODO(polls): add optional end time
+        question: String,
+        kind: PollKind,
+        max_selections: u64,
+        // TODO(polls): votes aren't tallied here yet
+        answers: Vec<PollAnswer>,
+        // TODO(polls): not implemented yet
+        end_time: Option<u64>,
+        // TODO(polls): just for testing updates to the event
+        testing_only_votes: u64,
     },
     UnableToDecrypt {
         msg: EncryptedMessage,
@@ -1249,6 +1276,40 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
             Content::SpaceChild(_) => Self::SpaceChild,
             Content::SpaceParent(_) => Self::SpaceParent,
             Content::_Custom { event_type, .. } => Self::Custom { event_type: event_type.clone() },
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PollKind {
+    Disclosed,
+    Undisclosed,
+    Unknown,
+}
+
+impl From<RumaPollKind> for PollKind {
+    fn from(value: RumaPollKind) -> Self {
+        match value {
+            RumaPollKind::Undisclosed => PollKind::Undisclosed,
+            RumaPollKind::Disclosed => PollKind::Disclosed,
+            _ => PollKind::Unknown,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct PollAnswer {
+    pub id: String,
+    pub text: String,
+    pub votes: u64
+}
+
+impl From<&RumaUnstablePollAnswer> for PollAnswer {
+    fn from(value: &RumaUnstablePollAnswer) -> Self {
+        PollAnswer {
+            id: value.id.to_owned(),
+            text: value.text.to_owned(),
+            votes: 0,
         }
     }
 }

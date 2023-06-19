@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{fmt, ops::Deref, sync::Arc};
+use std::collections::BTreeSet;
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -22,45 +23,43 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
-use ruma::{
-    assign,
-    events::{
-        policy::rule::{
-            room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
-            user::PolicyRuleUserEventContent,
-        },
-        relation::InReplyTo,
-        room::{
-            aliases::RoomAliasesEventContent,
-            avatar::RoomAvatarEventContent,
-            canonical_alias::RoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent,
-            encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
-            encryption::RoomEncryptionEventContent,
-            guest_access::RoomGuestAccessEventContent,
-            history_visibility::RoomHistoryVisibilityEventContent,
-            join_rules::RoomJoinRulesEventContent,
-            member::{Change, RoomMemberEventContent},
-            message::{
-                self, sanitize::RemoveReplyFallback, MessageType, Relation,
-                RoomMessageEventContent, SyncRoomMessageEvent,
-            },
-            name::RoomNameEventContent,
-            pinned_events::RoomPinnedEventsEventContent,
-            power_levels::RoomPowerLevelsEventContent,
-            server_acl::RoomServerAclEventContent,
-            third_party_invite::RoomThirdPartyInviteEventContent,
-            tombstone::RoomTombstoneEventContent,
-            topic::RoomTopicEventContent,
-        },
-        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-        sticker::StickerEventContent,
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
-        StateEventType,
+use ruma::{assign, events::{
+    policy::rule::{
+        room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
+        user::PolicyRuleUserEventContent,
     },
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
-};
+    relation::InReplyTo,
+    room::{
+        aliases::RoomAliasesEventContent,
+        avatar::RoomAvatarEventContent,
+        canonical_alias::RoomCanonicalAliasEventContent,
+        create::RoomCreateEventContent,
+        encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+        encryption::RoomEncryptionEventContent,
+        guest_access::RoomGuestAccessEventContent,
+        history_visibility::RoomHistoryVisibilityEventContent,
+        join_rules::RoomJoinRulesEventContent,
+        member::{Change, RoomMemberEventContent},
+        message::{
+            self, sanitize::RemoveReplyFallback, MessageType, Relation,
+            RoomMessageEventContent, SyncRoomMessageEvent,
+        },
+        name::RoomNameEventContent,
+        pinned_events::RoomPinnedEventsEventContent,
+        power_levels::RoomPowerLevelsEventContent,
+        server_acl::RoomServerAclEventContent,
+        third_party_invite::RoomThirdPartyInviteEventContent,
+        tombstone::RoomTombstoneEventContent,
+        topic::RoomTopicEventContent,
+    },
+    space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+    sticker::StickerEventContent,
+    AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+    AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+    StateEventType,
+}, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UInt, UserId};
+use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
+use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
 use tracing::{debug, error};
@@ -82,6 +81,9 @@ pub enum TimelineItemContent {
 
     /// An `m.sticker` event.
     Sticker(Sticker),
+
+    #[cfg(feature = "experimental-polls")]
+    Poll(PollState),
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
@@ -596,6 +598,32 @@ impl Sticker {
         &self.content
     }
 }
+
+/// State for a poll start event and related answers and close event, if any.
+#[cfg(feature = "experimental-polls")]
+#[derive(Clone, Debug)]
+pub struct PollState {
+    // TODO(polls): pull the fields we care about out of the start event?
+    // TODO(polls): Track when a poll ends
+    pub(in crate::timeline) content: UnstablePollStartEventContent,
+    /// Non-aggregated list of (UserID, votes, timestamp).
+    pub(in crate::timeline) votes: Vec<(String, Vec<String>, MilliSecondsSinceUnixEpoch)>,
+    /// Aggregated results.
+    pub(in crate::timeline) results: Vec<(String, UInt)>,
+}
+
+impl PollState {
+    /// Get the data of this poll.
+    pub fn content(&self) -> &UnstablePollStartEventContent {
+        &self.content
+    }
+
+    // TODO(polls): This is just for testing and should be replaced with the results.
+    pub fn votes(&self) -> usize {
+        self.votes.len()
+    }
+}
+
 
 /// An event changing a room membership.
 #[derive(Clone, Debug)]

@@ -20,6 +20,7 @@ use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     events::{
+        poll::compile_unstable_poll_results,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptType},
         relation::{Annotation, Replacement},
@@ -41,6 +42,7 @@ use ruma::{
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
+use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
@@ -52,7 +54,9 @@ use super::{
     find_read_marker,
     item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, ReactionGroup,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState,
+    PollState,
+    ReactionGroup,
     ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
     TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
@@ -151,12 +155,12 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
     fn from(event: AnySyncTimelineEvent) -> Self {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-                SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
-                    redacts,
-                    content,
-                    ..
-                }),
-            )) => Self::Redaction { redacts, content },
+                                                  SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
+                                                                                       redacts,
+                                                                                       content,
+                                                                                       ..
+                                                                                   }),
+                                              )) => Self::Redaction { redacts, content },
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
@@ -220,7 +224,7 @@ pub(super) struct TimelineEventHandler<'a> {
     event_should_update_fully_read_marker: &'a mut bool,
     track_read_receipts: bool,
     users_read_receipts:
-        &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+    &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
     result: HandleEventResult,
 }
 
@@ -295,9 +299,9 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_reaction(c);
                 }
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
-                    relates_to: Some(message::Relation::Replacement(re)),
-                    ..
-                }) => {
+                                                            relates_to: Some(message::Relation::Replacement(re)),
+                                                            ..
+                                                        }) => {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
@@ -306,6 +310,23 @@ impl<'a> TimelineEventHandler<'a> {
                 AnyMessageLikeEventContent::RoomEncrypted(c) => self.handle_room_encrypted(c),
                 AnyMessageLikeEventContent::Sticker(content) => {
                     self.add(should_add, TimelineItemContent::Sticker(Sticker { content }));
+                }
+                #[cfg(feature = "experimental-polls")]
+                AnyMessageLikeEventContent::UnstablePollStart(c) => {
+                    self.add(should_add, TimelineItemContent::Poll(PollState {
+                        content: c,
+                        votes: Vec::new(),
+                        results: Vec::new(),
+                    }));
+                }
+                #[cfg(feature = "experimental-polls")]
+                AnyMessageLikeEventContent::UnstablePollResponse(c) => {
+                    self.handle_poll_vote(c);
+                }
+                #[cfg(feature = "experimental-polls")]
+                AnyMessageLikeEventContent::PollEnd(c) => {
+                    // TODO(polls): emit an event AND update the start event
+                    todo!("handle poll end: {c:?}");
                 }
                 // TODO
                 _ => {
@@ -373,7 +394,7 @@ impl<'a> TimelineEventHandler<'a> {
         self.result
     }
 
-    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
+    #[instrument(skip_all, fields(replacement_event_id = ? replacement.event_id))]
     fn handle_room_message_edit(
         &mut self,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
@@ -396,6 +417,10 @@ impl<'a> TimelineEventHandler<'a> {
                 TimelineItemContent::Sticker(_) => {
                     info!("Edit event applies to a sticker, discarding");
                     return None;
+                }
+                #[cfg(feature = "experimental-polls")]
+                TimelineItemContent::Poll(_) => {
+                    todo!("is editing polls a thing?");
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
                     info!("Edit event applies to event that couldn't be decrypted, discarding");
@@ -435,7 +460,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
-    #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
+    #[instrument(skip_all, fields(relates_to_event_id = ? c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
         let (reaction_id, old_txn_id) = match &self.flow {
@@ -516,6 +541,31 @@ impl<'a> TimelineEventHandler<'a> {
         self.reaction_map.insert(reaction_id, (reaction_sender_data, c.relates_to));
     }
 
+    fn handle_poll_vote(&mut self, c: UnstablePollResponseEventContent) {
+        let id = c.relates_to.event_id.clone();
+        update_timeline_item!(self, &id, "vote", |event_item| {
+            match &event_item.content() {
+                TimelineItemContent::Poll(state) => {
+                    // TODO(polls): This looks horrible, is there a nicer way to do it?
+                    let votes = [&state.votes[..], &[(self.meta.sender.to_string(), c.poll_response.answers, self.meta.timestamp)]].concat();
+
+                    // TODO(polls): aggregate here
+                    // let full_results = compile_unstable_poll_results(&state.content.poll_start, &votes, None);
+                    // let results = full_results.into_iter().map(|(id, users)| (id.to_string(), users.len())).collect::<Vec<_>>();
+
+                    Some(event_item.with_content(TimelineItemContent::Poll(
+                        PollState {
+                            content: state.content.clone(),
+                            votes: votes,
+                            results: Vec::new(),
+                        }
+                    ), None))
+                }
+                _ => None
+            }
+        });
+    }
+
     #[instrument(skip_all)]
     fn handle_room_encrypted(&mut self, c: RoomEncryptedEventContent) {
         // TODO: Handle replacements if the replaced event is also UTD
@@ -523,7 +573,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
-    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
+    #[instrument(skip_all, fields(redacts_event_id = ? redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
         let id = EventItemIdentifier::EventId(redacts.clone());
         if let Some((_, rel)) = self.reaction_map.remove(&id) {
@@ -602,7 +652,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
-    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
+    #[instrument(skip_all, fields(redacts_event_id = ? redacts))]
     fn handle_local_redaction(
         &mut self,
         redacts: OwnedTransactionId,
@@ -664,7 +714,7 @@ impl<'a> TimelineEventHandler<'a> {
                 let transaction_id = txn_id.to_owned();
                 LocalEventTimelineItem { send_state, transaction_id }
             }
-            .into(),
+                .into(),
             Flow::Remote { event_id, raw_event, position, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -699,7 +749,7 @@ impl<'a> TimelineEventHandler<'a> {
                     latest_edit_json: None,
                     origin,
                 }
-                .into()
+                    .into()
             }
         };
 
@@ -858,9 +908,9 @@ impl<'a> TimelineEventHandler<'a> {
                         // 2. the item after the old one that was removed is virtual (it should be
                         //    impossible for this to be a read marker)
                         && self
-                            .items
-                            .get(idx)
-                            .map_or(true, |item| item.is_virtual())
+                        .items
+                        .get(idx)
+                        .map_or(true, |item| item.is_virtual())
                     {
                         trace!("Removing day divider");
                         removed_day_divider_id = Some(self.items.remove(idx - 1).internal_id);
@@ -1007,12 +1057,12 @@ impl<'a> TimelineEventHandler<'a> {
                     let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
                     let Some((reaction_sender_data, annotation)) =
                         self.reaction_map.get(&reaction_id)
-                    else {
-                        error!(
+                        else {
+                            error!(
                             "inconsistent state: reaction from pending_reactions not in reaction_map"
                         );
-                        continue;
-                    };
+                            continue;
+                        };
 
                     let group: &mut ReactionGroup =
                         bundled.entry(annotation.key.clone()).or_default();
@@ -1030,7 +1080,7 @@ pub(crate) fn update_read_marker(
     fully_read_event: Option<&EventId>,
     event_should_update_fully_read_marker: &mut bool,
 ) {
-    let Some(fully_read_event) = fully_read_event else { return };
+    let Some(fully_read_event) = fully_read_event else { return; };
     trace!(?fully_read_event, "Updating read marker");
 
     let read_marker_idx = find_read_marker(items);

@@ -4,6 +4,7 @@ use ruma::events::{
     MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
+use tracing::debug;
 
 use crate::{room_member::MembershipState, timeline::MessageType, ClientError};
 
@@ -126,6 +127,7 @@ pub enum MessageLikeEventContent {
     KeyVerificationKey,
     KeyVerificationMac,
     KeyVerificationDone,
+    PollStart,
     ReactionContent { related_event_id: String },
     RoomEncrypted,
     RoomMessage { message_type: MessageType },
@@ -137,6 +139,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
     type Error = anyhow::Error;
 
     fn try_from(value: AnySyncMessageLikeEvent) -> anyhow::Result<Self> {
+        debug!("MessageLikeEventContent::try_from: {:?}", value);
         let content = match value {
             AnySyncMessageLikeEvent::CallAnswer(_) => MessageLikeEventContent::CallAnswer,
             AnySyncMessageLikeEvent::CallInvite(_) => MessageLikeEventContent::CallInvite,
@@ -178,6 +181,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             }
             AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
+            AnySyncMessageLikeEvent::PollStart(_) => MessageLikeEventContent::PollStart,
             _ => bail!("Unsupported Event Type"),
         };
         Ok(content)
