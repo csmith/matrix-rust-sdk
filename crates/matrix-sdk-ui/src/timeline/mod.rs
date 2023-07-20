@@ -75,8 +75,8 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
-        Message, OtherState, PollState, Profile, ReactionGroup, RepliedToEvent, RoomMembershipChange, Sticker,
-        TimelineDetails, TimelineItemContent,
+        Message, OtherState, PollEnd, PollState, Profile, ReactionGroup, RepliedToEvent,
+        RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
     },
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
@@ -493,6 +493,10 @@ impl Timeline {
             #[cfg(feature = "experimental-polls")]
             TimelineItemContent::Poll(_) => {
                 error_return!("Retrying polls is not currently supported");
+            }
+            #[cfg(feature = "experimental-polls")]
+            TimelineItemContent::PollEnd(_) => {
+                error_return!("Retrying poll ends is not currently supported");
             }
             TimelineItemContent::UnableToDecrypt(_) => {
                 error_return!("Invalid state: attempting to retry a UTD item");

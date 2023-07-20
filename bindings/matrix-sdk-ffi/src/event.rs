@@ -128,6 +128,7 @@ pub enum MessageLikeEventContent {
     KeyVerificationMac,
     KeyVerificationDone,
     PollStart,
+    PollEnd,
     ReactionContent { related_event_id: String },
     RoomEncrypted,
     RoomMessage { message_type: MessageType },
@@ -182,6 +183,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
             AnySyncMessageLikeEvent::RoomRedaction(_) => MessageLikeEventContent::RoomRedaction,
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
             AnySyncMessageLikeEvent::PollStart(_) => MessageLikeEventContent::PollStart,
+            AnySyncMessageLikeEvent::PollEnd(_) => MessageLikeEventContent::PollEnd,
             _ => bail!("Unsupported Event Type"),
         };
         Ok(content)

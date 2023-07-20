@@ -13,35 +13,34 @@
 // limitations under the License.
 
 use std::{collections::HashMap, sync::Arc};
+use std::collections::BTreeMap;
 
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::ObservableVector;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
-use ruma::{
-    events::{
-        poll::compile_unstable_poll_results,
-        reaction::ReactionEventContent,
-        receipt::{Receipt, ReceiptType},
-        relation::{Annotation, Replacement},
-        room::{
-            encrypted::RoomEncryptedEventContent,
-            member::RoomMemberEventContent,
-            message::{
-                self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
-            },
-            redaction::{
-                OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
-            },
+use ruma::{events::{
+    poll::compile_unstable_poll_results,
+    reaction::ReactionEventContent,
+    receipt::{Receipt, ReceiptType},
+    relation::{Annotation, Replacement},
+    room::{
+        encrypted::RoomEncryptedEventContent,
+        member::RoomMemberEventContent,
+        message::{
+            self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
+            RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
-        MessageLikeEventType, StateEventType, SyncStateEvent,
+        redaction::{
+            OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
+        },
     },
-    serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-};
+    AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+    AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
+    MessageLikeEventType, StateEventType, SyncStateEvent,
+}, serde::Raw, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, uint};
+use ruma::events::poll::end::PollEndEventContent;
+use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -55,7 +54,7 @@ use super::{
     item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
     rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState,
-    PollState,
+    PollEnd, PollState,
     ReactionGroup,
     ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
     TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
@@ -317,6 +316,7 @@ impl<'a> TimelineEventHandler<'a> {
                         content: c,
                         votes: Vec::new(),
                         results: Vec::new(),
+                        end_time: None,
                     }));
                 }
                 #[cfg(feature = "experimental-polls")]
@@ -324,9 +324,8 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_poll_vote(c);
                 }
                 #[cfg(feature = "experimental-polls")]
-                AnyMessageLikeEventContent::PollEnd(c) => {
-                    // TODO(polls): emit an event AND update the start event
-                    todo!("handle poll end: {c:?}");
+                AnyMessageLikeEventContent::UnstablePollEnd(c) => {
+                    self.handle_poll_end(c);
                 }
                 // TODO
                 _ => {
@@ -420,7 +419,13 @@ impl<'a> TimelineEventHandler<'a> {
                 }
                 #[cfg(feature = "experimental-polls")]
                 TimelineItemContent::Poll(_) => {
+                    // TODO(polls): Allow editing a poll
                     todo!("is editing polls a thing?");
+                }
+                #[cfg(feature = "experimental-polls")]
+                TimelineItemContent::PollEnd(_) => {
+                    info!("Edit event applies to poll end, discarding");
+                    return None;
                 }
                 TimelineItemContent::UnableToDecrypt(_) => {
                     info!("Edit event applies to event that couldn't be decrypted, discarding");
@@ -555,15 +560,36 @@ impl<'a> TimelineEventHandler<'a> {
 
                     Some(event_item.with_content(TimelineItemContent::Poll(
                         PollState {
-                            content: state.content.clone(),
                             votes: votes,
-                            results: Vec::new(),
+                            ..state.clone()
                         }
                     ), None))
                 }
                 _ => None
             }
         });
+    }
+
+    fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
+        let id = c.relates_to.event_id.clone();
+        update_timeline_item!(self, &id, "ended", |event_item| {
+            match &event_item.content() {
+                TimelineItemContent::Poll(state) => {
+                    // TODO(polls): re-aggregate here, as we might cut off some votes
+                    Some(event_item.with_content(TimelineItemContent::Poll(
+                        PollState {
+                            end_time: Some(self.meta.timestamp),
+                            ..state.clone()
+                        }
+                    ), None))
+                }
+                _ => None
+            }
+        });
+
+        self.add(true, TimelineItemContent::PollEnd(PollEnd {
+            start_event: id.clone(),
+        }));
     }
 
     #[instrument(skip_all)]

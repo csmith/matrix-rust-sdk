@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{fmt, ops::Deref, sync::Arc};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -23,7 +23,7 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
-use ruma::{assign, events::{
+use ruma::{assign, EventId, events::{
     policy::rule::{
         room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
         user::PolicyRuleUserEventContent,
@@ -57,7 +57,7 @@ use ruma::{assign, events::{
     AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
     AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
     StateEventType,
-}, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UInt, UserId};
+}, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UInt, uint, UserId};
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
 #[cfg(feature = "experimental-sliding-sync")]
@@ -84,6 +84,9 @@ pub enum TimelineItemContent {
 
     #[cfg(feature = "experimental-polls")]
     Poll(PollState),
+
+    #[cfg(feature = "experimental-polls")]
+    PollEnd(PollEnd),
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
@@ -604,12 +607,13 @@ impl Sticker {
 #[derive(Clone, Debug)]
 pub struct PollState {
     // TODO(polls): pull the fields we care about out of the start event?
-    // TODO(polls): Track when a poll ends
     pub(in crate::timeline) content: UnstablePollStartEventContent,
     /// Non-aggregated list of (UserID, votes, timestamp).
     pub(in crate::timeline) votes: Vec<(String, Vec<String>, MilliSecondsSinceUnixEpoch)>,
     /// Aggregated results.
     pub(in crate::timeline) results: Vec<(String, UInt)>,
+    /// Time the poll was ended, or None if it's still running.
+    pub(in crate::timeline) end_time: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl PollState {
@@ -618,12 +622,27 @@ impl PollState {
         &self.content
     }
 
+    pub fn end_time(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.end_time
+    }
+
     // TODO(polls): This is just for testing and should be replaced with the results.
     pub fn votes(&self) -> usize {
         self.votes.len()
     }
 }
 
+#[cfg(feature = "experimental-polls")]
+#[derive(Clone, Debug)]
+pub struct PollEnd {
+    pub(in crate::timeline) start_event: OwnedEventId,
+}
+
+impl PollEnd {
+    pub fn start_event(&self) -> &EventId {
+        &self.start_event
+    }
+}
 
 /// An event changing a room membership.
 #[derive(Clone, Debug)]

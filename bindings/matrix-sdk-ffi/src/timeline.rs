@@ -423,8 +423,11 @@ impl TimelineItemContent {
                 kind: poll.content().poll_start.kind.clone().into(),
                 max_selections: poll.content().poll_start.max_selections.into(),
                 answers: (*poll.content().poll_start.answers).iter().map(Into::into).collect(),
-                end_time: None,
+                end_time: poll.end_time().map(|t| t.0.into()),
                 testing_only_votes: poll.votes() as u64,
+            },
+            Content::PollEnd(poll_end) => TimelineItemContentKind::PollEnd {
+                start_event: poll_end.start_event().to_string(),
             },
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
@@ -490,7 +493,6 @@ pub enum TimelineItemContentKind {
         url: String,
     },
     Poll {
-        // TODO(polls): add optional end time
         question: String,
         kind: PollKind,
         max_selections: u64,
@@ -500,6 +502,9 @@ pub enum TimelineItemContentKind {
         end_time: Option<u64>,
         // TODO(polls): just for testing updates to the event
         testing_only_votes: u64,
+    },
+    PollEnd {
+        start_event: String,
     },
     UnableToDecrypt {
         msg: EncryptedMessage,
