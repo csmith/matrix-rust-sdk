@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{fmt, ops::Deref, sync::Arc};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -610,8 +610,6 @@ pub struct PollState {
     pub(in crate::timeline) content: UnstablePollStartEventContent,
     /// Non-aggregated list of (UserID, votes, timestamp).
     pub(in crate::timeline) votes: Vec<(String, Vec<String>, MilliSecondsSinceUnixEpoch)>,
-    /// Aggregated results.
-    pub(in crate::timeline) results: Vec<(String, UInt)>,
     /// Time the poll was ended, or None if it's still running.
     pub(in crate::timeline) end_time: Option<MilliSecondsSinceUnixEpoch>,
 }
@@ -626,9 +624,53 @@ impl PollState {
         self.end_time
     }
 
-    // TODO(polls): This is just for testing and should be replaced with the results.
-    pub fn votes(&self) -> usize {
-        self.votes.len()
+    pub fn calculate_poll_results(&self) -> HashMap<String, Vec<String>> {
+        let cut_off_time = self.end_time.unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
+        let answer_ids = self.content.poll_start.answers
+            .iter()
+            .map(|a| a.id.clone())
+            .collect::<Vec<_>>();
+
+        let results = self.votes
+            .iter()
+            // Filter out any vote that was made after the cut off time.
+            .filter(|(_, _, timestamp)| *timestamp <= cut_off_time)
+            // Collate the most recent vote for each user. Spoiled votes (i.e., those for invalid
+            // options or for no options) count as retracting a vote, per MSC3381.
+            .fold(BTreeMap::new(), |mut acc, (sender, choices, time)| {
+                let response =
+                    acc.entry(sender).or_insert((MilliSecondsSinceUnixEpoch(uint!(0)), Vec::new()));
+
+                if response.0 < *time {
+                    if choices.len() == 0 {
+                        debug!("Discarding poll vote: spoiled by selecting no options");
+                        *response = (*time, Vec::new());
+                    } else if choices.iter().any(|c| !answer_ids.contains(c)) {
+                        debug!("Discarding poll vote: spoiled by selecting invalid option");
+                        *response = (*time, Vec::new());
+                    } else {
+                        *response = (*time, choices.clone());
+                    }
+                }
+
+                acc
+            })
+            // Flatten the map into a list of (choice, sender) tuples.
+            .into_iter()
+            .flat_map(|(sender, (_, choices))| {
+                choices.into_iter().map(|c| (c.clone(), sender.clone()))
+            })
+            // Collate them into (choice, [sender]) tuples.
+            .into_group_map_by(|(choice, _)| choice.clone())
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().map(|(_, sender)| sender).collect::<Vec<_>>()));
+
+        // Make sure all answers are included in the results, even if no one voted for them.
+        answer_ids
+            .into_iter()
+            .map(|i| (i, Vec::new()))
+            .chain(results)
+            .collect()
     }
 }
 

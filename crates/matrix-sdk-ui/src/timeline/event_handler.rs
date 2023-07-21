@@ -315,7 +315,6 @@ impl<'a> TimelineEventHandler<'a> {
                     self.add(should_add, TimelineItemContent::Poll(PollState {
                         content: c,
                         votes: Vec::new(),
-                        results: Vec::new(),
                         end_time: None,
                     }));
                 }
@@ -551,12 +550,14 @@ impl<'a> TimelineEventHandler<'a> {
         update_timeline_item!(self, &id, "vote", |event_item| {
             match &event_item.content() {
                 TimelineItemContent::Poll(state) => {
-                    // TODO(polls): This looks horrible, is there a nicer way to do it?
-                    let votes = [&state.votes[..], &[(self.meta.sender.to_string(), c.poll_response.answers, self.meta.timestamp)]].concat();
+                    // Truncate answers to the number of votes allowed
+                    let answers = c.poll_response.answers
+                        .into_iter()
+                        .take(state.content.poll_start.max_selections.try_into().unwrap_or(usize::MAX))
+                        .collect::<Vec<_>>();
 
-                    // TODO(polls): aggregate here
-                    // let full_results = compile_unstable_poll_results(&state.content.poll_start, &votes, None);
-                    // let results = full_results.into_iter().map(|(id, users)| (id.to_string(), users.len())).collect::<Vec<_>>();
+                    // TODO(polls): This looks horrible, is there a nicer way to do it?
+                    let votes = [&state.votes[..], &[(self.meta.sender.to_string(),answers, self.meta.timestamp)]].concat();
 
                     Some(event_item.with_content(TimelineItemContent::Poll(
                         PollState {

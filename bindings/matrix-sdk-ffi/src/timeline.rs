@@ -424,7 +424,7 @@ impl TimelineItemContent {
                 max_selections: poll.content().poll_start.max_selections.into(),
                 answers: (*poll.content().poll_start.answers).iter().map(Into::into).collect(),
                 end_time: poll.end_time().map(|t| t.0.into()),
-                testing_only_votes: poll.votes() as u64,
+                votes: poll.calculate_poll_results(),
             },
             Content::PollEnd(poll_end) => TimelineItemContentKind::PollEnd {
                 start_event: poll_end.start_event().to_string(),
@@ -496,12 +496,9 @@ pub enum TimelineItemContentKind {
         question: String,
         kind: PollKind,
         max_selections: u64,
-        // TODO(polls): votes aren't tallied here yet
         answers: Vec<PollAnswer>,
-        // TODO(polls): not implemented yet
+        votes: HashMap<String, Vec<String>>,
         end_time: Option<u64>,
-        // TODO(polls): just for testing updates to the event
-        testing_only_votes: u64,
     },
     PollEnd {
         start_event: String,
@@ -1306,7 +1303,6 @@ impl From<RumaPollKind> for PollKind {
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
-    pub votes: u64
 }
 
 impl From<&RumaUnstablePollAnswer> for PollAnswer {
@@ -1314,7 +1310,6 @@ impl From<&RumaUnstablePollAnswer> for PollAnswer {
         PollAnswer {
             id: value.id.to_owned(),
             text: value.text.to_owned(),
-            votes: 0,
         }
     }
 }
