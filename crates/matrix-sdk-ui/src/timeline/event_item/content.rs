@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::Deref, sync::Arc};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
 use indexmap::IndexMap;
@@ -21,45 +21,50 @@ use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
-#[cfg(feature = "experimental-sliding-sync")]
-use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
-use ruma::{assign, EventId, events::{
-    policy::rule::{
-        room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
-        user::PolicyRuleUserEventContent,
-    },
-    relation::InReplyTo,
-    room::{
-        aliases::RoomAliasesEventContent,
-        avatar::RoomAvatarEventContent,
-        canonical_alias::RoomCanonicalAliasEventContent,
-        create::RoomCreateEventContent,
-        encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
-        encryption::RoomEncryptionEventContent,
-        guest_access::RoomGuestAccessEventContent,
-        history_visibility::RoomHistoryVisibilityEventContent,
-        join_rules::RoomJoinRulesEventContent,
-        member::{Change, RoomMemberEventContent},
-        message::{
-            self, sanitize::RemoveReplyFallback, MessageType, Relation,
-            RoomMessageEventContent, SyncRoomMessageEvent,
-        },
-        name::RoomNameEventContent,
-        pinned_events::RoomPinnedEventsEventContent,
-        power_levels::RoomPowerLevelsEventContent,
-        server_acl::RoomServerAclEventContent,
-        third_party_invite::RoomThirdPartyInviteEventContent,
-        tombstone::RoomTombstoneEventContent,
-        topic::RoomTopicEventContent,
-    },
-    space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
-    sticker::StickerEventContent,
-    AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-    AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
-    StateEventType,
-}, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UInt, uint, UserId};
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
+#[cfg(feature = "experimental-sliding-sync")]
+use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
+use ruma::{
+    assign,
+    events::{
+        policy::rule::{
+            room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
+            user::PolicyRuleUserEventContent,
+        },
+        relation::InReplyTo,
+        room::{
+            aliases::RoomAliasesEventContent,
+            avatar::RoomAvatarEventContent,
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent,
+            encrypted::{EncryptedEventScheme, MegolmV1AesSha2Content, RoomEncryptedEventContent},
+            encryption::RoomEncryptionEventContent,
+            guest_access::RoomGuestAccessEventContent,
+            history_visibility::RoomHistoryVisibilityEventContent,
+            join_rules::RoomJoinRulesEventContent,
+            member::{Change, RoomMemberEventContent},
+            message::{
+                self, sanitize::RemoveReplyFallback, MessageType, Relation,
+                RoomMessageEventContent, SyncRoomMessageEvent,
+            },
+            name::RoomNameEventContent,
+            pinned_events::RoomPinnedEventsEventContent,
+            power_levels::RoomPowerLevelsEventContent,
+            server_acl::RoomServerAclEventContent,
+            third_party_invite::RoomThirdPartyInviteEventContent,
+            tombstone::RoomTombstoneEventContent,
+            topic::RoomTopicEventContent,
+        },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+        sticker::StickerEventContent,
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
+        StateEventType,
+    },
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    OwnedTransactionId, OwnedUserId, UInt, UserId,
+};
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
 use tracing::{debug, error};
@@ -626,12 +631,11 @@ impl PollState {
 
     pub fn calculate_poll_results(&self) -> HashMap<String, Vec<String>> {
         let cut_off_time = self.end_time.unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
-        let answer_ids = self.content.poll_start.answers
-            .iter()
-            .map(|a| a.id.clone())
-            .collect::<Vec<_>>();
+        let answer_ids =
+            self.content.poll_start.answers.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
 
-        let results = self.votes
+        let results = self
+            .votes
             .iter()
             // Filter out any vote that was made after the cut off time.
             .filter(|(_, _, timestamp)| *timestamp <= cut_off_time)
@@ -666,11 +670,7 @@ impl PollState {
             .map(|(k, v)| (k, v.into_iter().map(|(_, sender)| sender).collect::<Vec<_>>()));
 
         // Make sure all answers are included in the results, even if no one voted for them.
-        answer_ids
-            .into_iter()
-            .map(|i| (i, Vec::new()))
-            .chain(results)
-            .collect()
+        answer_ids.into_iter().map(|i| (i, Vec::new())).chain(results).collect()
     }
 }
 

@@ -1,5 +1,5 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
 use std::collections::BTreeSet;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use extension_trait::extension_trait;
@@ -426,9 +426,9 @@ impl TimelineItemContent {
                 end_time: poll.end_time().map(|t| t.0.into()),
                 votes: poll.calculate_poll_results(),
             },
-            Content::PollEnd(poll_end) => TimelineItemContentKind::PollEnd {
-                start_event: poll_end.start_event().to_string(),
-            },
+            Content::PollEnd(poll_end) => {
+                TimelineItemContentKind::PollEnd { start_event: poll_end.start_event().to_string() }
+            }
             Content::UnableToDecrypt(msg) => {
                 TimelineItemContentKind::UnableToDecrypt { msg: EncryptedMessage::new(msg) }
             }
@@ -1307,9 +1307,6 @@ pub struct PollAnswer {
 
 impl From<&RumaUnstablePollAnswer> for PollAnswer {
     fn from(value: &RumaUnstablePollAnswer) -> Self {
-        PollAnswer {
-            id: value.id.to_owned(),
-            text: value.text.to_owned(),
-        }
+        PollAnswer { id: value.id.to_owned(), text: value.text.to_owned() }
     }
 }

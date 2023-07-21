@@ -12,36 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
 use std::collections::BTreeMap;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::ObservableVector;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
-use ruma::{events::{
-    poll::compile_unstable_poll_results,
-    reaction::ReactionEventContent,
-    receipt::{Receipt, ReceiptType},
-    relation::{Annotation, Replacement},
-    room::{
-        encrypted::RoomEncryptedEventContent,
-        member::RoomMemberEventContent,
-        message::{
-            self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
-            RoomMessageEventContentWithoutRelation,
-        },
-        redaction::{
-            OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
-        },
-    },
-    AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-    AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
-    MessageLikeEventType, StateEventType, SyncStateEvent,
-}, serde::Raw, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, uint};
 use ruma::events::poll::end::PollEndEventContent;
 use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
+use ruma::{
+    events::{
+        poll::compile_unstable_poll_results,
+        reaction::ReactionEventContent,
+        receipt::{Receipt, ReceiptType},
+        relation::{Annotation, Replacement},
+        room::{
+            encrypted::RoomEncryptedEventContent,
+            member::RoomMemberEventContent,
+            message::{
+                self, sanitize::RemoveReplyFallback, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
+            redaction::{
+                OriginalSyncRoomRedactionEvent, RoomRedactionEventContent, SyncRoomRedactionEvent,
+            },
+        },
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
+        MessageLikeEventType, StateEventType, SyncStateEvent,
+    },
+    serde::Raw,
+    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 use super::{
@@ -53,11 +57,9 @@ use super::{
     find_read_marker,
     item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState,
-    PollEnd, PollState,
-    ReactionGroup,
-    ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState, TimelineItem,
-    TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, PollEnd,
+    PollState, ReactionGroup, ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState,
+    TimelineItem, TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -154,12 +156,12 @@ impl From<AnySyncTimelineEvent> for TimelineEventKind {
     fn from(event: AnySyncTimelineEvent) -> Self {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-                                                  SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
-                                                                                       redacts,
-                                                                                       content,
-                                                                                       ..
-                                                                                   }),
-                                              )) => Self::Redaction { redacts, content },
+                SyncRoomRedactionEvent::Original(OriginalSyncRoomRedactionEvent {
+                    redacts,
+                    content,
+                    ..
+                }),
+            )) => Self::Redaction { redacts, content },
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(content) => Self::Message { content, relations: ev.relations() },
                 None => Self::RedactedMessage { event_type: ev.event_type() },
@@ -223,7 +225,7 @@ pub(super) struct TimelineEventHandler<'a> {
     event_should_update_fully_read_marker: &'a mut bool,
     track_read_receipts: bool,
     users_read_receipts:
-    &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
+        &'a mut HashMap<OwnedUserId, HashMap<ReceiptType, (OwnedEventId, Receipt)>>,
     result: HandleEventResult,
 }
 
@@ -298,9 +300,9 @@ impl<'a> TimelineEventHandler<'a> {
                     self.handle_reaction(c);
                 }
                 AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent {
-                                                            relates_to: Some(message::Relation::Replacement(re)),
-                                                            ..
-                                                        }) => {
+                    relates_to: Some(message::Relation::Replacement(re)),
+                    ..
+                }) => {
                     self.handle_room_message_edit(re);
                 }
                 AnyMessageLikeEventContent::RoomMessage(c) => {
@@ -312,11 +314,14 @@ impl<'a> TimelineEventHandler<'a> {
                 }
                 #[cfg(feature = "experimental-polls")]
                 AnyMessageLikeEventContent::UnstablePollStart(c) => {
-                    self.add(should_add, TimelineItemContent::Poll(PollState {
-                        content: c,
-                        votes: Vec::new(),
-                        end_time: None,
-                    }));
+                    self.add(
+                        should_add,
+                        TimelineItemContent::Poll(PollState {
+                            content: c,
+                            votes: Vec::new(),
+                            end_time: None,
+                        }),
+                    );
                 }
                 #[cfg(feature = "experimental-polls")]
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => {
@@ -551,22 +556,33 @@ impl<'a> TimelineEventHandler<'a> {
             match &event_item.content() {
                 TimelineItemContent::Poll(state) => {
                     // Truncate answers to the number of votes allowed
-                    let answers = c.poll_response.answers
+                    let answers = c
+                        .poll_response
+                        .answers
                         .into_iter()
-                        .take(state.content.poll_start.max_selections.try_into().unwrap_or(usize::MAX))
+                        .take(
+                            state
+                                .content
+                                .poll_start
+                                .max_selections
+                                .try_into()
+                                .unwrap_or(usize::MAX),
+                        )
                         .collect::<Vec<_>>();
 
                     // TODO(polls): This looks horrible, is there a nicer way to do it?
-                    let votes = [&state.votes[..], &[(self.meta.sender.to_string(),answers, self.meta.timestamp)]].concat();
+                    let votes = [
+                        &state.votes[..],
+                        &[(self.meta.sender.to_string(), answers, self.meta.timestamp)],
+                    ]
+                    .concat();
 
-                    Some(event_item.with_content(TimelineItemContent::Poll(
-                        PollState {
-                            votes: votes,
-                            ..state.clone()
-                        }
-                    ), None))
+                    Some(event_item.with_content(
+                        TimelineItemContent::Poll(PollState { votes: votes, ..state.clone() }),
+                        None,
+                    ))
                 }
-                _ => None
+                _ => None,
             }
         });
     }
@@ -577,20 +593,19 @@ impl<'a> TimelineEventHandler<'a> {
             match &event_item.content() {
                 TimelineItemContent::Poll(state) => {
                     // TODO(polls): re-aggregate here, as we might cut off some votes
-                    Some(event_item.with_content(TimelineItemContent::Poll(
-                        PollState {
+                    Some(event_item.with_content(
+                        TimelineItemContent::Poll(PollState {
                             end_time: Some(self.meta.timestamp),
                             ..state.clone()
-                        }
-                    ), None))
+                        }),
+                        None,
+                    ))
                 }
-                _ => None
+                _ => None,
             }
         });
 
-        self.add(true, TimelineItemContent::PollEnd(PollEnd {
-            start_event: id.clone(),
-        }));
+        self.add(true, TimelineItemContent::PollEnd(PollEnd { start_event: id.clone() }));
     }
 
     #[instrument(skip_all)]
@@ -741,7 +756,7 @@ impl<'a> TimelineEventHandler<'a> {
                 let transaction_id = txn_id.to_owned();
                 LocalEventTimelineItem { send_state, transaction_id }
             }
-                .into(),
+            .into(),
             Flow::Remote { event_id, raw_event, position, .. } => {
                 // Drop pending reactions if the message is redacted.
                 if let TimelineItemContent::RedactedMessage = content {
@@ -776,7 +791,7 @@ impl<'a> TimelineEventHandler<'a> {
                     latest_edit_json: None,
                     origin,
                 }
-                    .into()
+                .into()
             }
         };
 
