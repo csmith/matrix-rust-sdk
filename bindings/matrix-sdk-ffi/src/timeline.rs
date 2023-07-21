@@ -405,8 +405,6 @@ impl TimelineItemContent {
     pub fn kind(&self) -> TimelineItemContentKind {
         use matrix_sdk_ui::timeline::TimelineItemContent as Content;
 
-        debug!("TimelineItemContent::kind: {:?}", self.0);
-
         match &self.0 {
             Content::Message(_) => TimelineItemContentKind::Message,
             Content::RedactedMessage => TimelineItemContentKind::RedactedMessage,

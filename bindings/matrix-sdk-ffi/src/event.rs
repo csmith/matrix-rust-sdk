@@ -140,7 +140,6 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
     type Error = anyhow::Error;
 
     fn try_from(value: AnySyncMessageLikeEvent) -> anyhow::Result<Self> {
-        debug!("MessageLikeEventContent::try_from: {:?}", value);
         let content = match value {
             AnySyncMessageLikeEvent::CallAnswer(_) => MessageLikeEventContent::CallAnswer,
             AnySyncMessageLikeEvent::CallInvite(_) => MessageLikeEventContent::CallInvite,
