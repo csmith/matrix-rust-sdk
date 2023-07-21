@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::{fmt, ops::Deref, sync::Arc};
 
 use imbl::{vector, Vector};
@@ -21,7 +21,7 @@ use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
-use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
+
 use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
@@ -63,7 +63,7 @@ use ruma::{
         StateEventType,
     },
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedTransactionId, OwnedUserId, UInt, UserId,
+    OwnedTransactionId, OwnedUserId, UserId,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
@@ -646,7 +646,7 @@ impl PollState {
                     acc.entry(sender).or_insert((MilliSecondsSinceUnixEpoch(uint!(0)), Vec::new()));
 
                 if response.0 < *time {
-                    if choices.len() == 0 {
+                    if choices.is_empty() {
                         debug!("Discarding poll vote: spoiled by selecting no options");
                         *response = (*time, Vec::new());
                     } else if choices.iter().any(|c| !answer_ids.contains(c)) {
@@ -662,7 +662,7 @@ impl PollState {
             // Flatten the map into a list of (choice, sender) tuples.
             .into_iter()
             .flat_map(|(sender, (_, choices))| {
-                choices.into_iter().map(|c| (c.clone(), sender.clone()))
+                choices.into_iter().map(|c| (c, sender.clone()))
             })
             // Collate them into (choice, [sender]) tuples.
             .into_group_map_by(|(choice, _)| choice.clone())

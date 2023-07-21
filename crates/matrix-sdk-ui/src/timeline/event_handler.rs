@@ -12,19 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
 use eyeball_im::ObservableVector;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
-use ruma::events::poll::end::PollEndEventContent;
+
 use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
 use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use ruma::{
     events::{
-        poll::compile_unstable_poll_results,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptType},
         relation::{Annotation, Replacement},
@@ -43,8 +42,7 @@ use ruma::{
         AnySyncTimelineEvent, BundledMessageLikeRelations, EventContent, FullStateEventContent,
         MessageLikeEventType, StateEventType, SyncStateEvent,
     },
-    serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    serde::Raw, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
 };
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -578,7 +576,7 @@ impl<'a> TimelineEventHandler<'a> {
                     .concat();
 
                     Some(event_item.with_content(
-                        TimelineItemContent::Poll(PollState { votes: votes, ..state.clone() }),
+                        TimelineItemContent::Poll(PollState { votes, ..state.clone() }),
                         None,
                     ))
                 }
@@ -588,7 +586,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
-        let id = c.relates_to.event_id.clone();
+        let id = c.relates_to.event_id;
         update_timeline_item!(self, &id, "ended", |event_item| {
             match &event_item.content() {
                 TimelineItemContent::Poll(state) => {
