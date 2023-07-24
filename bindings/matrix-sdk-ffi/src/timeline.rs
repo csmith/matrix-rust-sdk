@@ -7,10 +7,6 @@ use matrix_sdk::{
     attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseThumbnailInfo, BaseVideoInfo},
     ruma::events::{
         location::AssetType as RumaAssetType,
-        poll::{
-            start::PollKind as RumaPollKind,
-            unstable_start::UnstablePollAnswer as RumaUnstablePollAnswer,
-        },
         room::{
             message::{
                 AudioInfo as RumaAudioInfo,
@@ -416,12 +412,24 @@ impl TimelineItemContent {
                 }
             }
             Content::Poll(poll) => TimelineItemContentKind::Poll {
-                question: poll.content().poll_start.question.text.to_string(),
-                kind: poll.content().poll_start.kind.clone().into(),
-                max_selections: poll.content().poll_start.max_selections.into(),
-                answers: (*poll.content().poll_start.answers).iter().map(Into::into).collect(),
+                question: poll.question(),
+                kind: if poll.disclosed() { PollKind::Disclosed } else { PollKind::Undisclosed },
+                max_selections: poll.max_selections(),
+                answers: poll.answers().iter().map(|(id, label)| PollAnswer { id: id.0.clone(), text: label.clone()}).collect(),
                 end_time: poll.end_time().map(|t| t.0.into()),
-                votes: poll.calculate_poll_results(),
+                votes: poll
+                    .calculate_poll_results()
+                    .iter()
+                    .map(|(vote, users)|
+                        (
+                            vote.0.clone(),
+                            users
+                                .iter()
+                                .map(|u| u.to_string())
+                                .collect::<Vec<String>>()
+                        )
+                    )
+                    .collect()
             },
             Content::PollEnd(poll_end) => {
                 TimelineItemContentKind::PollEnd { start_event: poll_end.start_event().to_string() }
@@ -1283,27 +1291,10 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherFullStateEventContent> for OtherStat
 pub enum PollKind {
     Disclosed,
     Undisclosed,
-    Unknown,
-}
-
-impl From<RumaPollKind> for PollKind {
-    fn from(value: RumaPollKind) -> Self {
-        match value {
-            RumaPollKind::Undisclosed => PollKind::Undisclosed,
-            RumaPollKind::Disclosed => PollKind::Disclosed,
-            _ => PollKind::Unknown,
-        }
-    }
 }
 
 #[derive(Clone, uniffi::Record)]
 pub struct PollAnswer {
     pub id: String,
     pub text: String,
-}
-
-impl From<&RumaUnstablePollAnswer> for PollAnswer {
-    fn from(value: &RumaUnstablePollAnswer) -> Self {
-        PollAnswer { id: value.id.to_owned(), text: value.text.to_owned() }
-    }
 }

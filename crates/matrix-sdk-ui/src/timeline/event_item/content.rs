@@ -23,8 +23,8 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 #[cfg(feature = "experimental-polls")]
-use ruma::events::{
-    poll::unstable_start::UnstablePollStartEventContent,
+use ruma::{
+    events::poll::unstable_start::UnstablePollStartContentBlock,
     uint, EventId, MilliSecondsSinceUnixEpoch,
 };
 #[cfg(feature = "experimental-sliding-sync")]
@@ -68,6 +68,7 @@ use ruma::{
     },
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
+use ruma::events::poll::start::PollKind;
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
 use tracing::{debug, error};
@@ -610,22 +611,52 @@ impl Sticker {
     }
 }
 
+#[cfg(feature = "experimental-polls")]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+pub struct PollAnswerId(pub String);
+
 /// State for a poll start event and related answers and close event, if any.
 #[cfg(feature = "experimental-polls")]
 #[derive(Clone, Debug)]
 pub struct PollState {
-    // TODO(polls): pull the fields we care about out of the start event?
-    pub(in crate::timeline) content: UnstablePollStartEventContent,
-    /// Non-aggregated list of (UserID, votes, timestamp).
-    pub(in crate::timeline) votes: Vec<(String, Vec<String>, MilliSecondsSinceUnixEpoch)>,
-    /// Time the poll was ended, or None if it's still running.
+    pub(in crate::timeline) question: String,
+    pub(in crate::timeline) disclosed: bool,
+    pub(in crate::timeline) max_selections: u64,
+    pub(in crate::timeline) answers: Vec<(PollAnswerId, String)>,
     pub(in crate::timeline) end_time: Option<MilliSecondsSinceUnixEpoch>,
+    pub(in crate::timeline) votes: Vec<(OwnedUserId, Vec<PollAnswerId>, MilliSecondsSinceUnixEpoch)>,
 }
 
 impl PollState {
-    /// Get the data of this poll.
-    pub fn content(&self) -> &UnstablePollStartEventContent {
-        &self.content
+    pub fn from(content: UnstablePollStartContentBlock) -> Self {
+        Self {
+            question: content.question.text,
+            disclosed: content.kind == PollKind::Disclosed,
+            max_selections: content.max_selections.into(),
+            answers: content.answers.into_iter().map(|a| (PollAnswerId(a.id.clone()), a.text.clone())).collect(),
+            end_time: None,
+            votes: Vec::new(),
+        }
+    }
+
+    /// Gets the question that was asked in this poll.
+    pub fn question(&self) -> String {
+        self.question.clone()
+    }
+
+    /// Whether the poll results should be disclosed (shown to the user before the poll ends).
+    pub fn disclosed(&self) -> bool {
+        self.disclosed
+    }
+
+    /// Gets the maximum number of votes each user may cast.
+    pub fn max_selections(&self) -> u64 {
+        self.max_selections
+    }
+
+    /// Gets the list of answers that were provided for this poll.
+    pub fn answers(&self) -> Vec<(PollAnswerId, String)> {
+        self.answers.clone()
     }
 
     /// Get the time this poll was ended, or None if it's still running.
@@ -634,10 +665,9 @@ impl PollState {
     }
 
     /// Aggregates all known votes for this poll, handling late and spoiled votes.
-    pub fn calculate_poll_results(&self) -> HashMap<String, Vec<String>> {
+    pub fn calculate_poll_results(&self) -> HashMap<PollAnswerId, Vec<OwnedUserId>> {
         let cut_off_time = self.end_time.unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
-        let answer_ids =
-            self.content.poll_start.answers.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+        let answer_ids = self.answers.iter().map(|(a, _)| a.clone()).collect::<Vec<_>>();
 
         let results = self
             .votes

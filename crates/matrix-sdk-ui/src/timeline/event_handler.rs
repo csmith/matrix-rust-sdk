@@ -56,9 +56,10 @@ use super::{
     find_read_marker,
     item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, PollEnd,
-    PollState, ReactionGroup, ReactionSenderData, Sticker, TimelineDetails, TimelineInnerState,
-    TimelineItem, TimelineItemContent, VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, Message, OtherState, PollAnswerId,
+    PollEnd, PollState, ReactionGroup, ReactionSenderData, Sticker, TimelineDetails,
+    TimelineInnerState, TimelineItem, TimelineItemContent, VirtualTimelineItem,
+    DEFAULT_SANITIZER_MODE,
 };
 use crate::events::SyncTimelineEventWithoutContent;
 
@@ -313,14 +314,7 @@ impl<'a> TimelineEventHandler<'a> {
                 }
                 #[cfg(feature = "experimental-polls")]
                 AnyMessageLikeEventContent::UnstablePollStart(c) => {
-                    self.add(
-                        should_add,
-                        TimelineItemContent::Poll(PollState {
-                            content: c,
-                            votes: Vec::new(),
-                            end_time: None,
-                        }),
-                    );
+                    self.add( should_add, TimelineItemContent::Poll(PollState::from(c.poll_start)));
                 }
                 #[cfg(feature = "experimental-polls")]
                 AnyMessageLikeEventContent::UnstablePollResponse(c) => {
@@ -562,20 +556,15 @@ impl<'a> TimelineEventHandler<'a> {
                         .into_iter()
                         .take(
                             state
-                                .content
-                                .poll_start
                                 .max_selections
                                 .try_into()
                                 .unwrap_or(usize::MAX),
                         )
+                        .map(|a| PollAnswerId(a))
                         .collect::<Vec<_>>();
 
-                    // TODO(polls): This looks horrible, is there a nicer way to do it?
-                    let votes = [
-                        &state.votes[..],
-                        &[(self.meta.sender.to_string(), answers, self.meta.timestamp)],
-                    ]
-                    .concat();
+                    let mut votes = state.votes.clone();
+                    votes.push((self.meta.sender.clone(), answers, self.meta.timestamp));
 
                     Some(event_item.with_content(
                         TimelineItemContent::Poll(PollState { votes, ..state.clone() }),

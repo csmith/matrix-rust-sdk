@@ -75,8 +75,8 @@ pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventItemOrigin,
         EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
-        Message, OtherState, PollEnd, PollState, Profile, ReactionGroup, RepliedToEvent,
-        RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
+        Message, OtherState, PollAnswerId, PollEnd, PollState, Profile, ReactionGroup,
+        RepliedToEvent, RoomMembershipChange, Sticker, TimelineDetails, TimelineItemContent,
     },
     futures::SendAttachment,
     item::{TimelineItem, TimelineItemKind},
