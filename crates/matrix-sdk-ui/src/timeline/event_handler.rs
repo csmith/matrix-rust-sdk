@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -20,10 +19,12 @@ use eyeball_im::ObservableVector;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 
-use ruma::events::poll::unstable_end::UnstablePollEndEventContent;
-use ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
 use ruma::{
     events::{
+        poll::{
+            unstable_end::UnstablePollEndEventContent,
+            unstable_response::UnstablePollResponseEventContent,
+        },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptType},
         relation::{Annotation, Replacement},
@@ -395,7 +396,7 @@ impl<'a> TimelineEventHandler<'a> {
         self.result
     }
 
-    #[instrument(skip_all, fields(replacement_event_id = ? replacement.event_id))]
+    #[instrument(skip_all, fields(replacement_event_id = ?replacement.event_id))]
     fn handle_room_message_edit(
         &mut self,
         replacement: Replacement<RoomMessageEventContentWithoutRelation>,
@@ -467,7 +468,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted reaction events are no-ops so don't need to be handled
-    #[instrument(skip_all, fields(relates_to_event_id = ? c.relates_to.event_id))]
+    #[instrument(skip_all, fields(relates_to_event_id = ?c.relates_to.event_id))]
     fn handle_reaction(&mut self, c: ReactionEventContent) {
         let event_id: &EventId = &c.relates_to.event_id;
         let (reaction_id, old_txn_id) = match &self.flow {
@@ -549,6 +550,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_vote(&mut self, c: UnstablePollResponseEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
         let id = c.relates_to.event_id.clone();
         update_timeline_item!(self, &id, "vote", |event_item| {
             match &event_item.content() {
@@ -586,11 +588,11 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     fn handle_poll_end(&mut self, c: UnstablePollEndEventContent) {
+        // TODO(polls): what if the event isn't found? Cache this for later?
         let id = c.relates_to.event_id;
         update_timeline_item!(self, &id, "ended", |event_item| {
             match &event_item.content() {
                 TimelineItemContent::Poll(state) => {
-                    // TODO(polls): re-aggregate here, as we might cut off some votes
                     Some(event_item.with_content(
                         TimelineItemContent::Poll(PollState {
                             end_time: Some(self.meta.timestamp),
@@ -613,7 +615,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
-    #[instrument(skip_all, fields(redacts_event_id = ? redacts))]
+    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_redaction(&mut self, redacts: OwnedEventId, _content: RoomRedactionEventContent) {
         let id = EventItemIdentifier::EventId(redacts.clone());
         if let Some((_, rel)) = self.reaction_map.remove(&id) {
@@ -692,7 +694,7 @@ impl<'a> TimelineEventHandler<'a> {
     }
 
     // Redacted redactions are no-ops (unfortunately)
-    #[instrument(skip_all, fields(redacts_event_id = ? redacts))]
+    #[instrument(skip_all, fields(redacts_event_id = ?redacts))]
     fn handle_local_redaction(
         &mut self,
         redacts: OwnedTransactionId,
@@ -948,9 +950,9 @@ impl<'a> TimelineEventHandler<'a> {
                         // 2. the item after the old one that was removed is virtual (it should be
                         //    impossible for this to be a read marker)
                         && self
-                        .items
-                        .get(idx)
-                        .map_or(true, |item| item.is_virtual())
+                            .items
+                            .get(idx)
+                            .map_or(true, |item| item.is_virtual())
                     {
                         trace!("Removing day divider");
                         removed_day_divider_id = Some(self.items.remove(idx - 1).internal_id);
@@ -1097,12 +1099,12 @@ impl<'a> TimelineEventHandler<'a> {
                     let reaction_id = EventItemIdentifier::EventId(reaction_event_id);
                     let Some((reaction_sender_data, annotation)) =
                         self.reaction_map.get(&reaction_id)
-                        else {
-                            error!(
+                    else {
+                        error!(
                             "inconsistent state: reaction from pending_reactions not in reaction_map"
                         );
-                            continue;
-                        };
+                        continue;
+                    };
 
                     let group: &mut ReactionGroup =
                         bundled.entry(annotation.key.clone()).or_default();
@@ -1120,7 +1122,7 @@ pub(crate) fn update_read_marker(
     fully_read_event: Option<&EventId>,
     event_should_update_fully_read_marker: &mut bool,
 ) {
-    let Some(fully_read_event) = fully_read_event else { return; };
+    let Some(fully_read_event) = fully_read_event else { return };
     trace!(?fully_read_event, "Updating read marker");
 
     let read_marker_idx = find_read_marker(items);

@@ -4,8 +4,6 @@ use ruma::events::{
     MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
     RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
 };
-use tracing::debug;
-
 use crate::{room_member::MembershipState, timeline::MessageType, ClientError};
 
 #[derive(uniffi::Object)]

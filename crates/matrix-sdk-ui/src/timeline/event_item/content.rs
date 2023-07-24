@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-polls")]
 use std::collections::{BTreeMap, HashMap};
 use std::{fmt, ops::Deref, sync::Arc};
 
@@ -21,8 +22,11 @@ use itertools::Itertools;
 use matrix_sdk::{deserialized_responses::TimelineEvent, Result};
 #[cfg(feature = "experimental-sliding-sync")]
 use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
-
-use ruma::events::poll::unstable_start::UnstablePollStartEventContent;
+#[cfg(feature = "experimental-polls")]
+use ruma::events::{
+    poll::unstable_start::UnstablePollStartEventContent,
+    uint, EventId, MilliSecondsSinceUnixEpoch,
+};
 #[cfg(feature = "experimental-sliding-sync")]
 use ruma::events::{AnySyncTimelineEvent, OriginalSyncMessageLikeEvent};
 use ruma::{
@@ -62,8 +66,7 @@ use ruma::{
         AnyTimelineEvent, BundledMessageLikeRelations, FullStateEventContent, MessageLikeEventType,
         StateEventType,
     },
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedTransactionId, OwnedUserId, UserId,
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedTransactionId, OwnedUserId, UserId,
 };
 #[cfg(feature = "experimental-sliding-sync")]
 use tracing::warn;
@@ -625,10 +628,12 @@ impl PollState {
         &self.content
     }
 
+    /// Get the time this poll was ended, or None if it's still running.
     pub fn end_time(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         self.end_time
     }
 
+    /// Aggregates all known votes for this poll, handling late and spoiled votes.
     pub fn calculate_poll_results(&self) -> HashMap<String, Vec<String>> {
         let cut_off_time = self.end_time.unwrap_or_else(MilliSecondsSinceUnixEpoch::now);
         let answer_ids =

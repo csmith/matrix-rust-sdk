@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::bail;
@@ -32,8 +31,8 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, Profile, TimelineDetails};
-use ruma::{assign, UInt, UserId};
-use tracing::{debug, warn};
+use ruma::{assign, UInt};
+use tracing::warn;
 
 use crate::{
     error::{ClientError, TimelineError},
